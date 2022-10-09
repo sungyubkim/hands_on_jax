@@ -1,3 +1,4 @@
+import haiku as hk
 import jax
 from typing import Any, Callable
 from flax import struct
@@ -20,6 +21,13 @@ class Trainer(struct.PyTreeNode):
         updates, new_opt_state = self.tx.update(grads, self.opt_state, self.params)
         new_params = optax.apply_updates(self.params, updates)
         return self.replace(step=self.step+1, params=new_params, opt_state=new_opt_state, **kwargs)
+
+def make_forward(model):
+
+  def _forward(inputs):
+    return model()(inputs)
+
+  return hk.transform(_forward)
 
 def params_to_vec(param, unravel=False):
     vec_param, unravel_fn = jax.flatten_util.ravel_pytree(param)
