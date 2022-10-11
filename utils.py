@@ -3,6 +3,7 @@ import jax
 from typing import Any, Callable
 from flax import struct
 import optax
+from flax.jax_utils import replicate
 
 class Trainer(struct.PyTreeNode):
     apply_fn: Callable = struct.field(pytree_node=False)
@@ -29,9 +30,20 @@ def make_forward(model):
 
   return hk.transform(_forward)
 
+def make_forward_with_state(model):
+
+  def _forward(inputs, train=True):
+    return model()(inputs, train=train)
+
+  return hk.transform_with_state(_forward)
+
 def params_to_vec(param, unravel=False):
     vec_param, unravel_fn = jax.flatten_util.ravel_pytree(param)
     if unravel:
         return vec_param, unravel_fn
     else:
         return vec_param
+      
+def unreplicate(tree, i=0):
+  """Returns a single instance of a replicated array."""
+  return jax.tree_util.tree_map(lambda x: x[i], tree)
