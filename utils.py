@@ -25,15 +25,15 @@ class Trainer(struct.PyTreeNode):
 
 def make_forward(model):
 
-  def _forward(inputs):
-    return model()(inputs)
+  def _forward(*args, **kwargs):
+    return model()(*args, **kwargs)
 
   return hk.transform(_forward)
 
 def make_forward_with_state(model):
 
-  def _forward(inputs, train=True):
-    return model()(inputs, train=train)
+  def _forward(*args, **kwargs):
+    return model()(*args, **kwargs)
 
   return hk.transform_with_state(_forward)
 
