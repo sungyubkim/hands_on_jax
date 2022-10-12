@@ -184,26 +184,35 @@ def loss_landscape_visualization(
   plt.show()
   return None
 
-@jax.pmap
-def hvp_batch(v, trainer, batch):
+def hvp_batch(v, trainer, batch, use_connect=False):
     vec_params, unravel_fn = params_to_vec(trainer.params, True)
-        
+    
+    if use_connect:
+      multiplier = vec_params
+    else:
+      multiplier = jnp.ones_like(vec_params)
+    
     def loss(params):
         logit, state = trainer.apply_fn(params, trainer.state, None, batch['x'], train=True)
         log_prob = jax.nn.log_softmax(logit)
         return - (log_prob * batch['y']).sum(axis=-1).mean()
     
-    gvp, hvp = jax.jvp(jax.grad(loss), [trainer.params], [unravel_fn(v)])
-    return params_to_vec(hvp)
+    gvp, hvp = jax.jvp(jax.grad(loss), [trainer.params], [unravel_fn(v*multiplier)])
+    return params_to_vec(hvp)*multiplier
+  
+hvp_batch_p = jax.pmap(hvp_batch, static_broadcasted_argnums=(3,))
 
-def hvp(v, trainer, dataset):
+def hvp(v, trainer, dataset, use_batch, use_connect=False):
     res = 0.
-    for batch in dataset:
-      res += hvp_batch(replicate(v), trainer, batch).sum(axis=0)
-    res = res / len(dataset)
+    if use_batch:
+      res = hvp_batch_p(replicate(v), trainer, dataset[0], use_connect).mean(axis=0)
+    else:
+      for batch in dataset:
+        res += hvp_batch_p(replicate(v), trainer, batch, use_connect).mean(axis=0)
+      res = res / len(dataset)
     return res
 
-def lanczos(trainer, dataset, rand_proj_dim=10, seed=42):
+def lanczos(trainer, dataset, rand_proj_dim=10, seed=42, use_batch=False, use_connect=False):
     
     rng = jax.random.PRNGKey(seed)
     vec_params, unravel_fn = params_to_vec(unreplicate(trainer).params, True)
@@ -223,7 +232,7 @@ def lanczos(trainer, dataset, rand_proj_dim=10, seed=42):
       else:
         v_old = vecs[i-1, :]
       
-      w = hvp(v, trainer, dataset)
+      w = hvp(v, trainer, dataset, use_batch, use_connect)
       w = w - beta * v_old
       
       alpha = jnp.dot(w, v)
@@ -243,3 +252,25 @@ def lanczos(trainer, dataset, rand_proj_dim=10, seed=42):
         vecs = vecs.at[i+1].set(w/beta)
         
     return tridiag, vecs
+  
+def visualize_eigenspectrum(
+  trainer, 
+  dataset, 
+  num_iter=100,
+  seed=42,
+  use_batch=False,
+  use_connect=False,
+  title='Eigenspectrum of Hessian'
+  ):
+  
+  tridiag, vecs = lanczos(replicate(trainer), dataset, num_iter, seed, use_batch, use_connect)
+  eigval, eigvec = np.linalg.eigh(tridiag)
+  eigval = np.sort(eigval)
+  
+  import seaborn as sns
+  plt.style.use('ggplot')
+  
+  sns.histplot(eigval, color='teal', bins=30, kde=True)
+  plt.title(f'{title}', fontsize=10)
+  plt.tight_layout()
+  plt.show()

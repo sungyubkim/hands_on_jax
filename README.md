@@ -29,11 +29,14 @@ Simple codes for JAX in practice
 
 * Visualizing loss landscape with filter normalization
   
-  | Visualization method | with weight decay | withour weight decay |
+  | Visualization method | with weight decay | without weight decay |
   |:---:|:---:|:---:|
   | Filter Normalization | ![](./figs/wd_fn.png) | ![](./figs/wowd_fn.png) |
   | Random vector | ![](./figs/wd_rv.png) | ![](./figs/wowd_rv.png) |
 
 * Eigenspectrum of Hessian with stochastic Lanczos iteration
 
-  ![](figs/hessian_eigenspectrum.png)
+  | Eigenspectrum | with weight decay | without weight decay |
+  |:---:|:---:|:---:|
+  | Hessian | ![](./figs/wd_hess.png) | ![](./figs/wowd_hess.png) |
+  | Connectivitiy Hessian | ![](./figs/wd_chess.png) | ![](./figs/wowd_chess.png) |
