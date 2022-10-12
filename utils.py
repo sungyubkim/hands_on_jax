@@ -7,6 +7,11 @@ from flax.jax_utils import replicate
 from flax.training.checkpoints import save_checkpoint, restore_checkpoint
 import optax
 from typing import Any, Callable
+from itertools import product
+
+'''
+See ./1_construct_nn_with_haiku !
+'''
 
 class Trainer(struct.PyTreeNode):
     apply_fn: Callable = struct.field(pytree_node=False)
@@ -56,6 +61,10 @@ def unreplicate(tree, i=0):
   """Returns a single instance of a replicated array."""
   return jax.tree_util.tree_map(lambda x: x[i], tree)
 
+'''
+See ./3_image_classification !
+'''
+
 def create_lr_sched(num_epoch, num_train, batch_size, warmup_ratio, peak_lr):
   total_step = num_epoch * (num_train // batch_size)
   warmup_step = int(total_step * warmup_ratio)
@@ -96,3 +105,65 @@ def compute_loss_dataset(trainer, dataset):
       loss += np.mean(loss_batch)
   loss /= len(dataset)
   return loss
+
+'''
+See ./4_visualizing_loss_landscapes !
+'''
+
+def filter_normalize_module(module_name, name, value):
+  # filter normalization for Conv & FC layers
+  if (name=='w') and (len(value.shape)==4):
+      norm = jnp.sqrt(jnp.sum(value**2, axis=(0,1,2), keepdims=True))
+  elif (name=='w') and (len(value.shape)==2):
+      norm = jnp.sqrt(jnp.sum(value**2, axis=0, keepdims=True))
+  else:
+      norm = 1
+  value = value / (norm + 1e-12)
+  return value
+
+def filter_normalize_pert(pert):
+  pert = hk.data_structures.map(filter_normalize_module, pert)
+  return pert
+
+def loss_landscape_visualization(
+  trainer, 
+  dataset, 
+  seed=42,
+  num_points=10,
+  x_vec=None,
+  y_vec=None,
+  filter_normalized=False,
+  ):
+  
+  x = np.linspace(-1, 1, num_points)
+  y = np.linspace(-1, 1, num_points)
+  xv, yv = np.meshgrid(x, y)
+  
+  rng = jax.random.PRNGKey(seed)
+  
+  # sample random direction
+  vec_params, unravel_fn = params_to_vec(trainer.params, True)
+  rng, rng_x, rng_y = jax.random.split(rng, 3)
+  x_vec = x_vec or jax.random.normal(rng_x, vec_params.shape)
+  y_vec = y_vec or jax.random.normal(rng_y, vec_params.shape)
+
+  if filter_normalized:
+    # normalize random vector
+    x_vec = params_to_vec(filter_normalize_pert(unravel_fn(x_vec)))
+    y_vec = params_to_vec(filter_normalize_pert(unravel_fn(y_vec)))
+
+  z = np.zeros_like(xv)
+  for i,j in tqdm(list(product(range(num_points), repeat=2))):
+      # define perturbation
+      alpha, beta = x[i], y[j]
+      pert = alpha * x_vec + beta * y_vec
+      perturbed_params = vec_params + pert
+      perturbed_trainer = trainer.replace(params=unravel_fn(perturbed_params))
+      acc_te = compute_loss_dataset(replicate(perturbed_trainer), dataset)
+      z[i][j] = acc_te
+      
+  contour = plt.contour(xv, yv, z)
+  plt.clabel(contour, inline=True, fontsize=8)
+  plt.title(f'Loss landscape with random vectors')
+  plt.show()
+  return None
