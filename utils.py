@@ -61,6 +61,7 @@ def create_lr_sched(num_epoch, num_train, batch_size, warmup_ratio, peak_lr):
   warmup_step = int(total_step * warmup_ratio)
   return optax.warmup_cosine_decay_schedule(0.0, peak_lr, warmup_step, total_step, 0.0)
 
+
 def compute_acc_batch(trainer, batch):  
   logit, state = trainer.apply_fn(trainer.params, trainer.state, None, batch['x'], train=False)
   
@@ -77,3 +78,21 @@ def compute_acc_dataset(trainer, dataset):
       acc += np.mean(acc_batch)
   acc /= len(dataset)
   return acc
+
+def compute_loss_batch(trainer, batch):  
+  logit, state = trainer.apply_fn(trainer.params, trainer.state, None, batch['x'], train=True)
+  
+  log_prob = jax.nn.log_softmax(logit)
+  loss = - (log_prob * batch['y']).sum(axis=-1).mean()
+  
+  return loss
+
+compute_loss_batch_pmapped = jax.pmap(compute_loss_batch, axis_name='batch')
+
+def compute_loss_dataset(trainer, dataset):
+  loss = 0
+  for batch in dataset:
+      loss_batch = compute_loss_batch_pmapped(trainer, batch)
+      loss += np.mean(loss_batch)
+  loss /= len(dataset)
+  return loss

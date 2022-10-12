@@ -24,3 +24,9 @@ Simple codes for JAX in practice
 * Learning rate scheduling
   
   ![](./figs/lr_sched.png)
+
+## 4. Loss landscape
+
+* Visualizing loss landscape with filter normalization
+  
+  ![](figs/loss_landscape.png)
