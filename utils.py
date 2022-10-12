@@ -4,6 +4,7 @@ from typing import Any, Callable
 from flax import struct
 import optax
 from flax.jax_utils import replicate
+from flax.training.checkpoints import save_checkpoint, restore_checkpoint
 
 class Trainer(struct.PyTreeNode):
     apply_fn: Callable = struct.field(pytree_node=False)
@@ -22,6 +23,11 @@ class Trainer(struct.PyTreeNode):
         updates, new_opt_state = self.tx.update(grads, self.opt_state, self.params)
         new_params = optax.apply_updates(self.params, updates)
         return self.replace(step=self.step+1, params=new_params, opt_state=new_opt_state, **kwargs)
+      
+def save_ckpt(trainer, path):
+  save_checkpoint(path, trainer, trainer.step, overwrite=True)
+
+load_ckpt = restore_checkpoint
 
 def make_forward(model):
 
