@@ -183,11 +183,11 @@ def hvp_batch(v, trainer, batch):
 def hvp(v, trainer, dataset):
     res = 0.
     for batch in dataset:
-        res += hvp_batch(replicate(v), trainer, batch).sum(axis=0)
+      res += hvp_batch(replicate(v), trainer, batch).sum(axis=0)
     res = res / len(dataset)
     return res
 
-def lanczos(trainer, ds_train, rand_proj_dim=10, seed=42):
+def lanczos(trainer, dataset, rand_proj_dim=10, seed=42):
     
     rng = jax.random.PRNGKey(seed)
     vec_params, unravel_fn = params_to_vec(unreplicate(trainer).params, True)
@@ -201,29 +201,29 @@ def lanczos(trainer, ds_train, rand_proj_dim=10, seed=42):
     
     beta = 0
     for i in tqdm(range(rand_proj_dim)):
-        v = vecs[i, :]
-        if i == 0:
-            v_old = 0
-        else:
-            v_old = vecs[i -1, :]
+      v = vecs[i, :]
+      if i == 0:
+        v_old = 0
+      else:
+        v_old = vecs[i-1, :]
+      
+      w = hvp(v, trainer, dataset)
+      w = w - beta * v_old
+      
+      alpha = jnp.dot(w, v)
+      tridiag = tridiag.at[i, i].set(alpha)
+      w = w - alpha * v
+      
+      for j in range(i):
+        tau = vecs[j, :]
+        coef = np.dot(w, tau)
+        w += - coef * tau
+          
+      beta = jnp.linalg.norm(w)
+      
+      if (i + 1) < rand_proj_dim:
+        tridiag = tridiag.at[i, i+1].set(beta)
+        tridiag = tridiag.at[i+1, i].set(beta)
+        vecs = vecs.at[i+1].set(w/beta)
         
-        w = hvp(v, trainer, ds_train)
-        w = w - beta * v_old
-        
-        alpha = jnp.dot(w, v)
-        tridiag = tridiag.at[i, i].set(alpha)
-        w = w - alpha * v
-        
-        for j in range(i):
-            tau = vecs[j, :]
-            coef = np.dot(w, tau)
-            w += - coef * tau
-            
-        beta = jnp.linalg.norm(w)
-        
-        if (i + 1) < rand_proj_dim:
-            tridiag = tridiag.at[i, i+1].set(beta)
-            tridiag = tridiag.at[i+1, i].set(beta)
-            vecs = vecs.at[i+1].set(w/beta)
-            
     return tridiag, vecs
