@@ -167,3 +167,63 @@ def loss_landscape_visualization(
   plt.title(f'Loss landscape with random vectors')
   plt.show()
   return None
+
+@jax.pmap
+def hvp_batch(v, trainer, batch):
+    vec_params, unravel_fn = params_to_vec(trainer.params, True)
+        
+    def loss(params):
+        logit, state = trainer.apply_fn(params, trainer.state, None, batch['x'], train=True)
+        log_prob = jax.nn.log_softmax(logit)
+        return - (log_prob * batch['y']).sum(axis=-1).mean()
+    
+    gvp, hvp = jax.jvp(jax.grad(loss), [trainer.params], [unravel_fn(v)])
+    return params_to_vec(hvp)
+
+def hvp(v, trainer, dataset):
+    res = 0.
+    for batch in dataset:
+        res += hvp_batch(replicate(v), trainer, batch).sum(axis=0)
+    res = res / len(dataset)
+    return res
+
+def lanczos(trainer, ds_train, rand_proj_dim=10, seed=42):
+    
+    rng = jax.random.PRNGKey(seed)
+    vec_params, unravel_fn = params_to_vec(unreplicate(trainer).params, True)
+    
+    tridiag = jnp.zeros((rand_proj_dim, rand_proj_dim))
+    vecs = jnp.zeros((rand_proj_dim, len(vec_params)))
+    
+    init_vec = jax.random.normal(rng, shape=vec_params.shape)
+    init_vec = init_vec / jnp.linalg.norm(init_vec)
+    vecs = vecs.at[0].set(init_vec)
+    
+    beta = 0
+    for i in tqdm(range(rand_proj_dim)):
+        v = vecs[i, :]
+        if i == 0:
+            v_old = 0
+        else:
+            v_old = vecs[i -1, :]
+        
+        w = hvp(v, trainer, ds_train)
+        w = w - beta * v_old
+        
+        alpha = jnp.dot(w, v)
+        tridiag = tridiag.at[i, i].set(alpha)
+        w = w - alpha * v
+        
+        for j in range(i):
+            tau = vecs[j, :]
+            coef = np.dot(w, tau)
+            w += - coef * tau
+            
+        beta = jnp.linalg.norm(w)
+        
+        if (i + 1) < rand_proj_dim:
+            tridiag = tridiag.at[i, i+1].set(beta)
+            tridiag = tridiag.at[i+1, i].set(beta)
+            vecs = vecs.at[i+1].set(w/beta)
+            
+    return tridiag, vecs

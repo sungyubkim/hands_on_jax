@@ -30,3 +30,7 @@ Simple codes for JAX in practice
 * Visualizing loss landscape with filter normalization
   
   ![](figs/loss_landscape.png)
+
+* Eigenspectrum of Hessian with stochastic Lanczos iteration
+
+  ![](figs/hessian_eigenspectrum.png)
