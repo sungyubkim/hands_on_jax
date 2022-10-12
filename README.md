@@ -38,5 +38,5 @@ Simple codes for JAX in practice
 
   | Eigenspectrum | with weight decay | without weight decay |
   |:---:|:---:|:---:|
-  | Hessian | ![](./figs/wd_hess.png) | ![](./figs/wowd_hess.png) |
   | Connectivitiy Hessian | ![](./figs/wd_chess.png) | ![](./figs/wowd_chess.png) |
+  | Hessian | ![](./figs/wd_hess.png) | ![](./figs/wowd_hess.png) |
