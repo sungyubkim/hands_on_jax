@@ -8,6 +8,13 @@ from flax.training.checkpoints import save_checkpoint, restore_checkpoint
 import optax
 from typing import Any, Callable
 from itertools import product
+from tqdm import tqdm
+
+import matplotlib.pyplot as plt
+# plt.style.use('ggplot')
+plt.rcParams['figure.figsize'] = (4, 3)
+plt.rcParams['xtick.labelsize'] = 8
+plt.rcParams['ytick.labelsize'] = 8
 
 '''
 See ./1_construct_nn_with_haiku !
@@ -133,6 +140,7 @@ def loss_landscape_visualization(
   x_vec=None,
   y_vec=None,
   filter_normalized=False,
+  title='loss landscape',
   ):
   
   x = np.linspace(-1, 1, num_points)
@@ -162,9 +170,17 @@ def loss_landscape_visualization(
       acc_te = compute_loss_dataset(replicate(perturbed_trainer), dataset)
       z[i][j] = acc_te
       
-  contour = plt.contour(xv, yv, z)
+  contour = plt.contour(xv, yv, z, cmap='coolwarm_r')
   plt.clabel(contour, inline=True, fontsize=8)
-  plt.title(f'Loss landscape with random vectors')
+  plt.title(f'{title}', fontsize=10)
+  plt.show()
+  
+  fig = plt.figure(figsize=(6, 4))
+  ax = fig.add_subplot(projection='3d')
+  ax.plot_surface(xv, yv, z, cmap='coolwarm_r', rstride=1, cstride=1)
+  ax.plot_wireframe(xv, yv, z, color='white', linewidth=0.1, rstride=1, cstride=1)
+  ax.set_title(f'{title}', fontsize=10)
+  plt.tight_layout()
   plt.show()
   return None
 
