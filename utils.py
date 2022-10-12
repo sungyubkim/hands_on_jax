@@ -1,10 +1,12 @@
-import haiku as hk
+import numpy as np
 import jax
-from typing import Any, Callable
+import jax.numpy as jnp
+import haiku as hk
 from flax import struct
-import optax
 from flax.jax_utils import replicate
 from flax.training.checkpoints import save_checkpoint, restore_checkpoint
+import optax
+from typing import Any, Callable
 
 class Trainer(struct.PyTreeNode):
     apply_fn: Callable = struct.field(pytree_node=False)
@@ -53,3 +55,25 @@ def params_to_vec(param, unravel=False):
 def unreplicate(tree, i=0):
   """Returns a single instance of a replicated array."""
   return jax.tree_util.tree_map(lambda x: x[i], tree)
+
+def create_lr_sched(num_epoch, num_train, batch_size, warmup_ratio, peak_lr):
+  total_step = num_epoch * (num_train // batch_size)
+  warmup_step = int(total_step * warmup_ratio)
+  return optax.warmup_cosine_decay_schedule(0.0, peak_lr, warmup_step, total_step, 0.0)
+
+def compute_acc_batch(trainer, batch):  
+  logit, state = trainer.apply_fn(trainer.params, trainer.state, None, batch['x'], train=False)
+  
+  acc = (jnp.argmax(logit, axis=-1) == jnp.argmax(batch['y'], axis=-1)).astype(int).mean()
+  
+  return acc
+
+compute_acc_batch_pmapped = jax.pmap(compute_acc_batch, axis_name='batch')
+
+def compute_acc_dataset(trainer, dataset):
+  acc = 0
+  for batch in dataset:
+      acc_batch = compute_acc_batch_pmapped(trainer, batch)
+      acc += np.mean(acc_batch)
+  acc /= len(dataset)
+  return acc

@@ -4,6 +4,8 @@ ModuleType = Any
 
 import jax
 import haiku as hk
+from dataclasses import dataclass
+from functools import partial
 
 @dataclass
 class Block(hk.Module):

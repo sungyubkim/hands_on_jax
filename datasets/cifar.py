@@ -1,22 +1,24 @@
+import numpy as np
 import tensorflow as tf
 tf.config.experimental.set_visible_devices([], 'GPU')
 import tensorflow_datasets as tfds
 
 IMG_MEAN = (0.5, 0.5, 0.5)
 IMG_STD = (0.2, 0.2, 0.2)
+NUM_TRAIN = 50_000
 
-def load_dataset(batch_dims, train=True, shuffle=True, repeat=True):
+def load_dataset(num_classes, batch_dims, train=True, shuffle=True, repeat=True):
     total_batch_size = np.prod(batch_dims)
     
     if train:
         ds = tfds.load(
-            f'cifar{NUM_CLASSES}',
+            f'cifar{num_classes}',
             data_dir='../../tensorflow_datasets/',
             split='train',
         )
     else:
         ds = tfds.load(
-            f'cifar{NUM_CLASSES}',
+            f'cifar{num_classes}',
             data_dir='../../tensorflow_datasets/',
             split='test',
         )
@@ -25,7 +27,7 @@ def load_dataset(batch_dims, train=True, shuffle=True, repeat=True):
         img = tf.cast(sample['image'], tf.float32) / 255.0
         img -= tf.constant(IMG_MEAN, shape=(1,1,3))
         img /= tf.constant(IMG_STD, shape=(1,1,3))
-        label = tf.one_hot(sample['label'], NUM_CLASSES)
+        label = tf.one_hot(sample['label'], num_classes)
         return {'x':img, 'y':label}
     
     ds = ds.map(preprocess, num_parallel_calls=tf.data.AUTOTUNE)
