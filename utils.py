@@ -8,6 +8,7 @@ from flax.training.checkpoints import save_checkpoint, restore_checkpoint
 import optax
 from typing import Any, Callable
 from itertools import product
+from functools import partial
 from tqdm import tqdm
 
 import matplotlib.pyplot as plt
@@ -117,31 +118,38 @@ def compute_loss_dataset(trainer, dataset):
 See ./4_visualizing_loss_landscapes !
 '''
 
-def filter_normalize_module(module_name, name, value):
+def filter_normalize_module(module_name, name, value, mask=True):
     # filter normalization for Conv & FC layers
     if (name=='w') and (len(value.shape)==4):
-        scale = 1./jnp.sqrt(jnp.sum(value**2, axis=(0,1,2), keepdims=True))
+        norm = jnp.sqrt(jnp.sum(value**2, axis=(0,1,2), keepdims=True))
+        scale = 1./(norm + 1e-12)
     elif (name=='w') and (len(value.shape)==2):
-        scale = 1./jnp.sqrt(jnp.sum(value**2, axis=0, keepdims=True))
+        norm = jnp.sqrt(jnp.sum(value**2, axis=0, keepdims=True))
+        scale = 1./(norm + 1e-12)
     else:
         # mask bias & params of normalization layers
-        scale = 0.
+        norm = jnp.abs(value)
+        scale = 1./(norm + 1e-12)
+        if mask:
+            scale = 0.
     value = value * scale
     return value
 
-def scale_pert(pert, param):
+def scale_pert(pert, param, mask=True):
     if len(pert.shape)==4:
         scale = jnp.sqrt(jnp.sum(param**2, axis=(0,1,2), keepdims=True))
     elif len(pert.shape)==2:
         scale = jnp.sqrt(jnp.sum(param**2, axis=0, keepdims=True))
     else:
-        scale = 0.
+        scale = jnp.abs(param)
+        if mask:
+            scale = 0.
     pert = pert * scale
     return pert
 
-def filter_normalize_pert(pert, params):
-    pert = hk.data_structures.map(filter_normalize_module, pert)
-    pert = jax.tree_util.tree_map(scale_pert, pert, params)
+def filter_normalize_pert(pert, params, mask=True):
+    pert = hk.data_structures.map(partial(filter_normalize_module, mask=mask), pert)
+    pert = jax.tree_util.tree_map(partial(scale_pert, mask=mask), pert, params)
     return pert
 
 def loss_landscape_visualization(
@@ -152,6 +160,8 @@ def loss_landscape_visualization(
   x_vec=None,
   y_vec=None,
   filter_normalized=False,
+  mask=True,
+  max_loss=None,
   title='loss landscape',
   ):
   
@@ -169,8 +179,8 @@ def loss_landscape_visualization(
 
   if filter_normalized:
     # normalize random vector
-    x_vec = params_to_vec(filter_normalize_pert(unravel_fn(x_vec), trainer.params))
-    y_vec = params_to_vec(filter_normalize_pert(unravel_fn(y_vec), trainer.params))
+    x_vec = params_to_vec(filter_normalize_pert(unravel_fn(x_vec), trainer.params, mask))
+    y_vec = params_to_vec(filter_normalize_pert(unravel_fn(y_vec), trainer.params, mask))
 
   z = np.zeros_like(xv)
   for i,j in tqdm(list(product(range(num_points), repeat=2))):
@@ -191,40 +201,52 @@ def loss_landscape_visualization(
   ax = fig.add_subplot(projection='3d')
   ax.plot_surface(xv, yv, z, cmap='coolwarm_r', rstride=1, cstride=1)
   ax.plot_wireframe(xv, yv, z, color='white', linewidth=0.1, rstride=1, cstride=1)
+  
+  if max_loss is not None:
+    ax.set_zlim(0.0, max_loss)
+  
   ax.set_title(f'{title}', fontsize=10)
   plt.tight_layout()
   plt.show()
   return None
 
-def hvp_batch(v, trainer, batch, use_connect=False):
+def scale_connectivity(pert, param):
+    return pert * param
+
+def mask_and_scale(pert, params, mask):
+    pert = hk.data_structures.map(partial(filter_normalize_module, mask=mask), pert)
+    pert = jax.tree_util.tree_map(scale_connectivity, pert, params)
+    return pert
+
+def hvp_batch(v, trainer, batch, use_connect, mask):
   vec_params, unravel_fn = params_to_vec(trainer.params, True)
-  
+  v = unravel_fn(v)
   if use_connect:
-    multiplier = vec_params
-  else:
-    multiplier = jnp.ones_like(vec_params)
+    v = mask_and_scale(v, trainer.params, mask)
   
   def loss(params):
     logit, state = trainer.apply_fn(params, trainer.state, None, batch['x'], train=True)
     log_prob = jax.nn.log_softmax(logit)
     return - (log_prob * batch['y']).sum(axis=-1).mean()
   
-  gvp, hvp = jax.jvp(jax.grad(loss), [trainer.params], [unravel_fn(v*multiplier)])
+  gvp, hvp = jax.jvp(jax.grad(loss), [trainer.params], [v])
+  if use_connect:
+    hvp = mask_and_scale(hvp, trainer.params, mask)
   return params_to_vec(hvp)
   
-hvp_batch_p = jax.pmap(hvp_batch, static_broadcasted_argnums=(3,))
+hvp_batch_p = jax.pmap(hvp_batch, static_broadcasted_argnums=(3,4))
 
-def hvp(v, trainer, dataset, use_batch, use_connect=False):
+def hvp(v, trainer, dataset, use_batch, use_connect, mask):
     if use_batch:
-      res = hvp_batch_p(replicate(v), trainer, dataset[0], use_connect).mean(axis=0)
+      res = hvp_batch_p(replicate(v), trainer, dataset[0], use_connect, mask).mean(axis=0)
     else:
       res = 0.
       for batch in dataset:
-        res += hvp_batch_p(replicate(v), trainer, batch, use_connect).mean(axis=0)
+        res += hvp_batch_p(replicate(v), trainer, batch, use_connect, mask).mean(axis=0)
       res = res / len(dataset)
     return res
 
-def lanczos(trainer, dataset, rand_proj_dim=10, seed=42, use_batch=False, use_connect=False):
+def lanczos(trainer, dataset, rand_proj_dim=10, seed=42, use_batch=False, use_connect=False, mask=True):
     
     rng = jax.random.PRNGKey(seed)
     vec_params, unravel_fn = params_to_vec(unreplicate(trainer).params, True)
@@ -244,7 +266,7 @@ def lanczos(trainer, dataset, rand_proj_dim=10, seed=42, use_batch=False, use_co
       else:
         v_old = vecs[i-1, :]
       
-      w = hvp(v, trainer, dataset, use_batch, use_connect)
+      w = hvp(v, trainer, dataset, use_batch, use_connect, mask)
       w = w - beta * v_old
       
       alpha = jnp.dot(w, v)
@@ -272,10 +294,11 @@ def visualize_eigenspectrum(
   seed=42,
   use_batch=False,
   use_connect=False,
+  mask=True,
   title='Eigenspectrum of Hessian'
   ):
   
-  tridiag, vecs = lanczos(replicate(trainer), dataset, num_iter, seed, use_batch, use_connect)
+  tridiag, vecs = lanczos(replicate(trainer), dataset, num_iter, seed, use_batch, use_connect, mask)
   eigval, eigvec = np.linalg.eigh(tridiag)
   eigval = np.sort(eigval)
   

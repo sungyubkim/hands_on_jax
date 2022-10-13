@@ -5,25 +5,25 @@ Simple codes for JAX in practice
 
 * Linearization of function
   
-  ![](./figs/linearization.png)
+  ![Alt text](./figs/linearization.png)
 
 ## 1. Construct Neural Networks with Haiku
 
 * Visualizing MLP structure
   
-  ![](./figs/mlp.svg)
+  ![Alt text](./figs/mlp.svg)
 
 ## 2. Stochastic Models
 
 * Monte-Carlo DropOut (MCDO)
   
-  ![](./figs/mcdo.png)
+  ![Alt text](./figs/mcdo.png)
 
 ## 3. Image Classification
 
 * Learning rate scheduling
   
-  ![](./figs/lr_sched.png)
+  ![Alt text](./figs/lr_sched.png)
 
 ## 4. Loss landscape
 
@@ -31,12 +31,12 @@ Simple codes for JAX in practice
   
   | Visualization method | with weight decay | without weight decay |
   |:---:|:---:|:---:|
-  | Filter Normalization | ![](./figs/wd_fn.png) | ![](./figs/wowd_fn.png) |
-  | Random vector | ![](./figs/wd_rv.png) | ![](./figs/wowd_rv.png) |
+  | Filter Normalization | ![Alt text](./figs/wd_fn.png) | ![Alt text](./figs/wowd_fn.png) |
+  | Random vector | ![Alt text](./figs/wd_rv.png) | ![Alt text](./figs/wowd_rv.png) |
 
 * Eigenspectrum of Hessian with stochastic Lanczos iteration
 
   | Eigenspectrum | with weight decay | without weight decay |
   |:---:|:---:|:---:|
-  | [Connectivitiy Hessian](https://arxiv.org/abs/2209.15208) | ![](./figs/wd_chess.png) | ![](./figs/wowd_chess.png) |
-  | Hessian | ![](./figs/wd_hess.png) | ![](./figs/wowd_hess.png) |
+  | [Connectivitiy Hessian](https://arxiv.org/abs/2209.15208) | ![Alt text](./figs/wd_chess.png) | ![Alt text](./figs/wowd_chess.png) |
+  | Hessian | ![Alt text](./figs/wd_hess.png) | ![Alt text](./figs/wowd_hess.png) |
