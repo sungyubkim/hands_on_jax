@@ -118,19 +118,31 @@ See ./4_visualizing_loss_landscapes !
 '''
 
 def filter_normalize_module(module_name, name, value):
-  # filter normalization for Conv & FC layers
-  if (name=='w') and (len(value.shape)==4):
-      norm = jnp.sqrt(jnp.sum(value**2, axis=(0,1,2), keepdims=True))
-  elif (name=='w') and (len(value.shape)==2):
-      norm = jnp.sqrt(jnp.sum(value**2, axis=0, keepdims=True))
-  else:
-      norm = 1
-  value = value / (norm + 1e-12)
-  return value
+    # filter normalization for Conv & FC layers
+    if (name=='w') and (len(value.shape)==4):
+        scale = 1./jnp.sqrt(jnp.sum(value**2, axis=(0,1,2), keepdims=True))
+    elif (name=='w') and (len(value.shape)==2):
+        scale = 1./jnp.sqrt(jnp.sum(value**2, axis=0, keepdims=True))
+    else:
+        # mask bias & params of normalization layers
+        scale = 0.
+    value = value * scale
+    return value
 
-def filter_normalize_pert(pert):
-  pert = hk.data_structures.map(filter_normalize_module, pert)
-  return pert
+def scale_pert(pert, param):
+    if len(pert.shape)==4:
+        scale = jnp.sqrt(jnp.sum(param**2, axis=(0,1,2), keepdims=True))
+    elif len(pert.shape)==2:
+        scale = jnp.sqrt(jnp.sum(param**2, axis=0, keepdims=True))
+    else:
+        scale = 0.
+    pert = pert * scale
+    return pert
+
+def filter_normalize_pert(pert, params):
+    pert = hk.data_structures.map(filter_normalize_module, pert)
+    pert = jax.tree_util.tree_map(scale_pert, pert, params)
+    return pert
 
 def loss_landscape_visualization(
   trainer, 
@@ -157,18 +169,18 @@ def loss_landscape_visualization(
 
   if filter_normalized:
     # normalize random vector
-    x_vec = params_to_vec(filter_normalize_pert(unravel_fn(x_vec)))
-    y_vec = params_to_vec(filter_normalize_pert(unravel_fn(y_vec)))
+    x_vec = params_to_vec(filter_normalize_pert(unravel_fn(x_vec), trainer.params))
+    y_vec = params_to_vec(filter_normalize_pert(unravel_fn(y_vec), trainer.params))
 
   z = np.zeros_like(xv)
   for i,j in tqdm(list(product(range(num_points), repeat=2))):
-      # define perturbation
-      alpha, beta = x[i], y[j]
-      pert = alpha * x_vec + beta * y_vec
-      perturbed_params = vec_params + pert
-      perturbed_trainer = trainer.replace(params=unravel_fn(perturbed_params))
-      acc_te = compute_loss_dataset(replicate(perturbed_trainer), dataset)
-      z[i][j] = acc_te
+    # define perturbation
+    alpha, beta = x[i], y[j]
+    pert = alpha * x_vec + beta * y_vec
+    perturbed_params = vec_params + pert
+    perturbed_trainer = trainer.replace(params=unravel_fn(perturbed_params))
+    acc_te = compute_loss_dataset(replicate(perturbed_trainer), dataset)
+    z[i][j] = acc_te
       
   contour = plt.contour(xv, yv, z, cmap='coolwarm_r')
   plt.clabel(contour, inline=True, fontsize=8)
@@ -185,28 +197,28 @@ def loss_landscape_visualization(
   return None
 
 def hvp_batch(v, trainer, batch, use_connect=False):
-    vec_params, unravel_fn = params_to_vec(trainer.params, True)
-    
-    if use_connect:
-      multiplier = vec_params
-    else:
-      multiplier = jnp.ones_like(vec_params)
-    
-    def loss(params):
-        logit, state = trainer.apply_fn(params, trainer.state, None, batch['x'], train=True)
-        log_prob = jax.nn.log_softmax(logit)
-        return - (log_prob * batch['y']).sum(axis=-1).mean()
-    
-    gvp, hvp = jax.jvp(jax.grad(loss), [trainer.params], [unravel_fn(v*multiplier)])
-    return params_to_vec(hvp)*multiplier
+  vec_params, unravel_fn = params_to_vec(trainer.params, True)
+  
+  if use_connect:
+    multiplier = vec_params
+  else:
+    multiplier = jnp.ones_like(vec_params)
+  
+  def loss(params):
+    logit, state = trainer.apply_fn(params, trainer.state, None, batch['x'], train=True)
+    log_prob = jax.nn.log_softmax(logit)
+    return - (log_prob * batch['y']).sum(axis=-1).mean()
+  
+  gvp, hvp = jax.jvp(jax.grad(loss), [trainer.params], [unravel_fn(v*multiplier)])
+  return params_to_vec(hvp)
   
 hvp_batch_p = jax.pmap(hvp_batch, static_broadcasted_argnums=(3,))
 
 def hvp(v, trainer, dataset, use_batch, use_connect=False):
-    res = 0.
     if use_batch:
       res = hvp_batch_p(replicate(v), trainer, dataset[0], use_connect).mean(axis=0)
     else:
+      res = 0.
       for batch in dataset:
         res += hvp_batch_p(replicate(v), trainer, batch, use_connect).mean(axis=0)
       res = res / len(dataset)

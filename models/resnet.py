@@ -65,6 +65,7 @@ class ResNet(hk.Module):
     strides : Sequence[int]
     num_classes : int
     act : Callable = jax.nn.relu
+    eps : float=1e-5
     
     def __call__(self, x, train=True, print_shape=False):
         conv = partial(
@@ -76,7 +77,7 @@ class ResNet(hk.Module):
             create_scale=True,
             create_offset=True,
             decay_rate=0.9,
-            eps=1e-5,
+            eps=self.eps,
         )
         
         if print_shape:
